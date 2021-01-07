@@ -52,18 +52,10 @@ class Epidata:
   # Helper function to request and parse epidata
   @staticmethod
   def _request(params):
-    """Request and parse epidata.
-
-    We default to GET since it has better caching and logging
-    capabilities, but fall back to POST if the request is too
-    long and returns a 414.
-    """
+    """Request and parse epidata."""
     try:
       # API call
-      req = requests.get(Epidata.BASE_URL, params, headers=_HEADERS)
-      if req.status_code == 414:
-        req = requests.post(Epidata.BASE_URL, params, headers=_HEADERS)
-      return req.json()
+      return requests.get(Epidata.BASE_URL, params, headers=_HEADERS).json()
     except Exception as e:
       # Something broke
       return {'result': 0, 'message': 'error: ' + str(e)}

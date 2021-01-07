@@ -1,41 +1,27 @@
-"""Code shared among multiple `covid_hosp` scrapers."""
+"""
+Acquires the "COVID-19 Reported Patient Impact and Hospital Capacity by State
+Timeseries" dataset provided by the US Department of Health & Human Services
+via healthdata.gov.
+"""
 
 # standard library
 import json
 import re
 
+# first party
+from delphi.epidata.acquisition.covid_hosp.database import Database
+from delphi.epidata.acquisition.covid_hosp.network import Network
 
-class CovidHospException(Exception):
-  """Exception raised exclusively by `covid_hosp` utilities."""
+
+class UpdateException(Exception):
+  """Exception raised exclusively by the Update class."""
 
 
-class Utils:
+class Update:
 
   # regex to extract issue date from revision field
   # example revision: "Mon, 11/16/2020 - 00:55"
   REVISION_PATTERN = re.compile(r'^.*\s(\d+)/(\d+)/(\d+)\s.*$')
-
-  def launch_if_main(entrypoint, runtime_name):
-    """Call the given function in the main entry point, otherwise no-op."""
-
-    if runtime_name == '__main__':
-      entrypoint()
-
-  def int_from_date(date):
-    """Convert a YYYY-MM-DD date from a string to a YYYYMMDD int.
-
-    Parameters
-    ----------
-    date : str
-      Date in YYYY-MM-DD format.
-
-    Returns
-    -------
-    int
-      Date in YYYYMMDD format.
-    """
-
-    return int(date.replace('-', ''))
 
   def get_entry(obj, *path):
     """Get a deeply nested field from an arbitrary object.
@@ -54,7 +40,7 @@ class Utils:
 
     Raises
     ------
-    CovidHospException
+    UpdateException
       If the field can't be found.
     """
 
@@ -63,13 +49,13 @@ class Utils:
         is_index = isinstance(elem, int)
         is_list = isinstance(obj, list)
         if is_index != is_list:
-          raise CovidHospException('index given for non-list or vice versa')
+          raise UpdateException('index given for non-list or vice versa')
         obj = obj[elem]
       return obj
     except Exception as ex:
       path_str = '/'.join(map(str, path))
       msg = f'unable to access object path "/{path_str}"'
-      raise CovidHospException(msg) from ex
+      raise UpdateException(msg) from ex
 
   def get_issue_from_revision(revision):
     """Extract and return an issue from a revision string.
@@ -86,15 +72,31 @@ class Utils:
 
     Raises
     ------
-    CovidHospException
+    UpdateException
       If the issue can't be extracted.
     """
 
-    match = Utils.REVISION_PATTERN.match(revision)
+    match = Update.REVISION_PATTERN.match(revision)
     if not match:
-      raise CovidHospException(f'unable to extract issue from "{revision}"')
+      raise UpdateException(f'unable to extract issue from "{revision}"')
     y, m, d = match.group(3), match.group(1), match.group(2)
     return int(y) * 10000 + int(m) * 100 + int(d)
+
+  def get_date_as_int(date):
+    """Convert a YYYY-MM-DD date from a string to a YYYYMMDD int.
+
+    Parameters
+    ----------
+    date : str
+      Date in YYYY-MM-DD format.
+
+    Returns
+    -------
+    int
+      Date in YYYYMMDD format.
+    """
+
+    return int(date.replace('-', ''))
 
   def extract_resource_details(metadata):
     """Extract resource details, like URL and revision, from metadata.
@@ -113,32 +115,24 @@ class Utils:
 
     Raises
     ------
-    CovidHospException
+    UpdateException
       If the metadata does not match the expected format.
     """
 
     # check data integrity
-    if Utils.get_entry(metadata, 'success') is not True:
-      raise CovidHospException(
-          'metadata does not have `success` equal to `True`')
-    if len(Utils.get_entry(metadata, 'result')) != 1:
-      raise CovidHospException('metadata does not have exactly 1 result')
-    if len(Utils.get_entry(metadata, 'result', 0, 'resources')) != 1:
-      raise CovidHospException('metadata does not have exactly 1 resource')
+    if Update.get_entry(metadata, 'success') is not True:
+      raise UpdateException('metadata does not have `success` equal to `True`')
+    if len(Update.get_entry(metadata, 'result')) != 1:
+      raise UpdateException('metadata does not have exactly 1 result')
+    if len(Update.get_entry(metadata, 'result', 0, 'resources')) != 1:
+      raise UpdateException('metadata does not have exactly 1 resource')
 
     # return resource details
-    resource = Utils.get_entry(metadata, 'result', 0, 'resources', 0)
+    resource = Update.get_entry(metadata, 'result', 0, 'resources', 0)
     return resource['url'], resource['revision_timestamp']
 
-  def update_dataset(database, network):
+  def run(database_impl=Database, network_impl=Network):
     """Acquire the most recent dataset, unless it was previously acquired.
-
-    Parameters
-    ----------
-    database : delphi.epidata.acquisition.covid_hosp.common.database.Database
-      A `Database` subclass for a particular dataset.
-    network : delphi.epidata.acquisition.covid_hosp.common.network.Network
-      A `Network` subclass for a particular dataset.
 
     Returns
     -------
@@ -147,29 +141,36 @@ class Utils:
     """
 
     # get dataset details from metadata
-    metadata = network.fetch_metadata()
-    url, revision = Utils.extract_resource_details(metadata)
-    issue = Utils.get_issue_from_revision(revision)
+    metadata = network_impl.fetch_metadata()
+    url, revision = Update.extract_resource_details(metadata)
+    issue = Update.get_issue_from_revision(revision)
     print(f'issue: {issue}')
     print(f'revision: {revision}')
 
     # connect to the database
-    with database.connect() as db:
+    with database_impl.connect() as database:
 
       # bail if the dataset has already been acquired
-      if db.contains_revision(revision):
+      if database.contains_revision(revision):
         print('already have this revision, nothing to do')
         return False
 
       # add metadata to the database
       metadata_json = json.dumps(metadata)
-      db.insert_metadata(issue, revision, metadata_json)
+      database.insert_metadata(issue, revision, metadata_json)
 
       # download the dataset and add it to the database
-      dataset = network.fetch_dataset(url)
-      db.insert_dataset(issue, dataset)
+      # the date column needs to be reformatted as an int to match the table
+      # definition
+      dataset = network_impl.fetch_dataset(url)
+      dataset['date'] = dataset['date'].apply(Update.get_date_as_int)
+      database.insert_dataset(issue, dataset)
 
       print(f'successfully acquired {len(dataset)} rows')
 
       # note that the transaction is committed by exiting the `with` block
       return True
+
+
+# main entry point
+(Update.run if __name__ == '__main__' else lambda: None)()

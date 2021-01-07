@@ -1,19 +1,26 @@
 """Unit tests for database.py."""
 
 # standard library
-import math
+from pathlib import Path
 import unittest
 from unittest.mock import MagicMock
 from unittest.mock import sentinel
 
-# third party
-import pandas as pd
+# first party
+from delphi.epidata.acquisition.covid_hosp.test_utils import TestUtils
 
 # py3tester coverage target
-__test_target__ = 'delphi.epidata.acquisition.covid_hosp.common.database'
+__test_target__ = 'delphi.epidata.acquisition.covid_hosp.database'
 
 
 class DatabaseTests(unittest.TestCase):
+
+  def setUp(self):
+    """Perform per-test setup."""
+
+    # configure test data
+    path_to_repo_root = Path(__file__).parent.parent.parent.parent
+    self.test_utils = TestUtils(path_to_repo_root)
 
   def test_commit_and_close_on_success(self):
     """Commit and close the connection after success."""
@@ -66,7 +73,7 @@ class DatabaseTests(unittest.TestCase):
 
     mock_connection = MagicMock()
     mock_cursor = mock_connection.cursor()
-    database = Database(mock_connection, table_name=sentinel.table_name)
+    database = Database(mock_connection)
 
     with self.subTest(name='new revision'):
       mock_cursor.__iter__.return_value = [(0,)]
@@ -76,7 +83,7 @@ class DatabaseTests(unittest.TestCase):
       # compare with boolean literal to test the type cast
       self.assertIs(result, False)
       query_values = mock_cursor.execute.call_args[0][-1]
-      self.assertEqual(query_values, (sentinel.table_name, sentinel.revision))
+      self.assertEqual(query_values, (sentinel.revision,))
 
     with self.subTest(name='old revision'):
       mock_cursor.__iter__.return_value = [(1,)]
@@ -86,7 +93,7 @@ class DatabaseTests(unittest.TestCase):
       # compare with boolean literal to test the type cast
       self.assertIs(result, True)
       query_values = mock_cursor.execute.call_args[0][-1]
-      self.assertEqual(query_values, (sentinel.table_name, sentinel.revision))
+      self.assertEqual(query_values, (sentinel.revision,))
 
   def test_insert_metadata(self):
     """Add new metadata to the database."""
@@ -96,22 +103,15 @@ class DatabaseTests(unittest.TestCase):
 
     mock_connection = MagicMock()
     mock_cursor = mock_connection.cursor()
-    database = Database(mock_connection, table_name=sentinel.dataset_name)
+    database = Database(mock_connection)
 
     result = database.insert_metadata(
-        sentinel.publication_date,
-        sentinel.revision,
-        sentinel.meta_json)
+        sentinel.issue, sentinel.revision, sentinel.meta_json)
 
     self.assertIsNone(result)
-    actual_values = mock_cursor.execute.call_args[0][-1]
-    expected_values = (
-      sentinel.dataset_name,
-      sentinel.publication_date,
-      sentinel.revision,
-      sentinel.meta_json,
-    )
-    self.assertEqual(actual_values, expected_values)
+    query_values = mock_cursor.execute.call_args[0][-1]
+    self.assertEqual(
+        query_values, (sentinel.issue, sentinel.revision, sentinel.meta_json))
 
   def test_insert_dataset(self):
     """Add a new dataset to the database."""
@@ -119,43 +119,27 @@ class DatabaseTests(unittest.TestCase):
     # Note that query logic is tested separately by integration tests. This
     # test just checks that the function maps inputs to outputs as expected.
 
-    table_name = 'test_table'
-    columns_and_types = [
-      ('str_col', str),
-      ('int_col', int),
-      ('float_col', float),
-    ]
     mock_connection = MagicMock()
     mock_cursor = mock_connection.cursor()
-    database = Database(
-      mock_connection,
-      table_name=table_name,
-      columns_and_types=columns_and_types)
+    database = Database(mock_connection)
+    dataset = self.test_utils.load_sample_dataset()
 
-    dataset = pd.DataFrame.from_dict({
-      'str_col': ['a', 'b', 'c', math.nan, 'e', 'f'],
-      'int_col': ['1', '2', '3', '4', math.nan, '6'],
-      'float_col': ['0.1', '0.2', '0.3', '0.4', '0.5', math.nan],
-    })
-
-    result = database.insert_dataset(sentinel.publication_date, dataset)
+    result = database.insert_dataset(sentinel.issue, dataset)
 
     self.assertIsNone(result)
-    self.assertEqual(mock_cursor.execute.call_count, 6)
+    self.assertEqual(mock_cursor.execute.call_count, 20)
 
-    actual_sql = mock_cursor.execute.call_args[0][0]
-    self.assertIn('insert into `test_table` values', actual_sql.lower())
+    last_query_values = mock_cursor.execute.call_args[0][-1]
+    expected_query_values = (
+        0, sentinel.issue, 'MA', '2020-05-10', 53, 84, 15691, 73, 12427, 83,
+        3625, 84, None, 0, None, 0, None, 0, None, 0, None, 0, None, 0, None,
+        0, None, 0, None, 0, None, 0, None, 0, None, 0, 0.697850497273019, 72,
+        10876, 15585, 0.2902550897239881, 83, 3607, 12427, 0.21056656682174496,
+        73, 3304, 15691, None, None, None, None, None, None, None, None)
+    self.assertEqual(len(last_query_values), len(expected_query_values))
 
-    expected_values = [
-      ('a', 1, 0.1),
-      ('b', 2, 0.2),
-      ('c', 3, 0.3),
-      (None, 4, 0.4),
-      ('e', None, 0.5),
-      ('f', 6, None),
-    ]
-
-    for i, expected in enumerate(expected_values):
-      with self.subTest(name=f'row {i + 1}'):
-        actual = mock_cursor.execute.call_args_list[i][0][1]
-        self.assertEqual(actual, (0, sentinel.publication_date) + expected)
+    for actual, expected in zip(last_query_values, expected_query_values):
+      if isinstance(expected, float):
+        self.assertAlmostEqual(actual, expected)
+      else:
+        self.assertEqual(actual, expected)

@@ -210,22 +210,8 @@
     "// acquisition - covid_hosp",
     {
       "type": "move",
-      "src": "src/acquisition/covid_hosp/common/",
-      "dst": "[[package]]/acquisition/covid_hosp/common/",
-      "match": "^.*\\.(py)$",
-      "add-header-comment": true
-    },
-    {
-      "type": "move",
-      "src": "src/acquisition/covid_hosp/facility/",
-      "dst": "[[package]]/acquisition/covid_hosp/facility/",
-      "match": "^.*\\.(py)$",
-      "add-header-comment": true
-    },
-    {
-      "type": "move",
-      "src": "src/acquisition/covid_hosp/state_timeseries/",
-      "dst": "[[package]]/acquisition/covid_hosp/state_timeseries/",
+      "src": "src/acquisition/covid_hosp/",
+      "dst": "[[package]]/acquisition/covid_hosp/",
       "match": "^.*\\.(py)$",
       "add-header-comment": true
     },
