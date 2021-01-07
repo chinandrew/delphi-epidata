@@ -50,7 +50,7 @@ Data is not intended for public consumption at the time and is undocumented, but
   the number of time_type units between `time_value` and `issue`
 */
 
-CREATE TABLE `covidcast` (
+CREATE TABLE `covidcast_nowcast` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `source` varchar(32) NOT NULL,
   `signal` varchar(64) NOT NULL,
@@ -62,7 +62,6 @@ CREATE TABLE `covidcast` (
   `value_updated_timestamp` int(11) NOT NULL,
   `value` double NOT NULL,
   `issue` int(11) NOT NULL,
-  `lag` int(11) NOT NULL,
   PRIMARY KEY (`id`),
   -- for uniqueness, and also fast lookup of all locations on a given date
   UNIQUE KEY (`source`, `signal`, `time_type`, `geo_type`, `time_value`, `geo_value`, `issue`),
