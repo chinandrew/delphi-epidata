@@ -62,6 +62,7 @@ CREATE TABLE `covidcast_nowcast` (
   `value_updated_timestamp` int(11) NOT NULL,
   `value` double NOT NULL,
   `issue` int(11) NOT NULL,
+  `lag` int(11) NOT NULL,
   PRIMARY KEY (`id`),
   -- for uniqueness, and also fast lookup of all locations on a given date
   UNIQUE KEY (`source`, `signal`, `time_type`, `geo_type`, `time_value`, `geo_value`, `issue`),
